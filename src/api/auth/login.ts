@@ -2,6 +2,8 @@ import { Users } from "../../data/users";
 
 export default function handler(req: any, res: any) {
   try {
+    console.log("????");
+
     if (req.method !== "POST") {
       res.status(405).send({ message: "Only POST requests allowed" });
       return;

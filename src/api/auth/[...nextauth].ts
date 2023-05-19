@@ -54,6 +54,8 @@ const authOptions: NextAuthOptions = {
         },
       },
       async authorize(credentials?: Credentials, req) {
+        console.log("mpenw?");
+
         const { email = "", password = "" } = credentials || {};
         const res = await fetch("http://localhost:3000/api/login", {
           method: "POST",
