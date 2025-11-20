@@ -1,0 +1,66 @@
+services:
+  pantrypal:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    container_name: pantrypal_app
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://pantrypal:pantrypal_password@db:5432/pantrypal
+      OLLAMA_HOST: http://host.docker.internal:11434
+      OLLAMA_MODEL: phi3:mini   # or whatever you actually have pulled
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "npx prisma migrate deploy && npm start"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    container_name: pantrypal_worker
+    environment:
+      DATABASE_URL: postgres://pantrypal:pantrypal_password@db:5432/pantrypal
+      OLLAMA_HOST: http://host.docker.internal:11434
+      OLLAMA_MODEL: phi3:mini   # same as above
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    command: sh -c "npx ts-node scripts/process-raw-recipes.ts"
+
+  db:
+    image: postgres:16
+    container_name: pantrypal_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pantrypal
+      POSTGRES_USER: pantrypal
+      POSTGRES_PASSWORD: pantrypal_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pantrypal -d pantrypal"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pantrypal_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@pantrypal.dev
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:

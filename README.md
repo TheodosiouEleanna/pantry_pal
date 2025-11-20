@@ -1,36 +1,38 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PantryPal
 
-## Getting Started
+PantryPal is a Next.js app that suggests recipes based on the ingredients you have. It pairs a friendly UI with a Prisma/Postgres backend and an Ollama-powered worker that normalizes raw recipe data into a searchable catalog.
 
-First, run the development server:
+## Features
+- Add pantry items manually and request matching recipes.
+- API endpoint (`POST /api/recipes/suggest`) that scores recipes by required/optional ingredients.
+- Data pipeline to import a large CSV of raw recipes, normalize them via an Ollama model, and store structured recipes/ingredients.
+- Docker compose stack for Postgres, pgAdmin, Ollama, and a worker.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Stack
+- Next.js 16, React 19, TypeScript
+- Prisma ORM + PostgreSQL
+- Tailwind CSS
+- Ollama (LLM normalization worker)
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Prerequisites
+- Node.js 20+ and npm
+- Docker (for Postgres/Ollama)
+- `data/RAW_recipes.csv` (Food.com dataset format)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment
+Create a `.env` with at least:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## Learn More
+## Quick start (local)
+1) Install deps: `npm install`  
+2) Start Postgres (and optional pgAdmin/Ollama): `docker-compose up -d db pgadmin ollama`  
+3) Generate Prisma client: `npm run prisma:generate`  
+4) Apply migrations: `npm run prisma:migrate`  
+5) Run dev server: `npm run dev` and open http://localhost:3000
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Data pipeline
+1) Place `RAW_recipes.csv` in `data/`.  
+2) Import raw rows: `npm run import:raw` (uses `scripts/import-raw-recipes.ts`).  
+3) Normalize and persist recipes/ingredients with Ollama:
+   ```bash
+   npx ts-node scripts/process-raw-recipes.ts

@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Ingredient {
+  id            String             @id
+  canonicalName String             @unique
+  category      String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  aliases       IngredientAlias[]
+  recipeItems   RecipeIngredient[]
+
+  @@map("ingredients")
+}
+
+model IngredientAlias {
+  id           String     @id
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  ingredientId String
+  aliasName    String
+  createdAt    DateTime   @default(now())
+
+  @@unique([ingredientId, aliasName])
+  @@index([aliasName])
+  @@map("ingredient_aliases")
+}
+
+model Recipe {
+  id          String             @id
+  slug        String             @unique
+  title       String
+  description String?
+  timeMinutes Int?
+  difficulty  Difficulty?
+  popularity  Int                @default(0)
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  ingredients RecipeIngredient[]
+
+  @@map("recipes")
+}
+
+model RecipeIngredient {
+  id           String     @id
+  recipe       Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  recipeId     String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  ingredientId String
+  amount       Float?
+  unit         String?
+  optional     Boolean    @default(false)
+
+  @@unique([recipeId, ingredientId])
+  @@index([ingredientId, recipeId])
+  @@index([recipeId])
+  @@map("recipe_ingredients")
+}
+
+model RawRecipe {
+  id          String   @id
+  source      String
+  externalId  String?  
+  rawJson     Json
+  importedAt  DateTime @default(now())
+  processed   Boolean  @default(false)
+
+  @@index([source, processed])
+  @@unique([source, externalId])
+  @@map("raw_recipes")
+}
+
+enum Difficulty {
+  easy
+  medium
+  hard
+}
