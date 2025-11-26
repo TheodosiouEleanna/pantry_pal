@@ -12,9 +12,12 @@ export async function suggestRecipes(
 ): Promise<SuggestedRecipe[]> {
   const normalized = await normalizePantryItems(pantryItems);
   if (!normalized.length) return [];
+  console.log(`Normalized pantry items: ${JSON.stringify(normalized)}`);
 
   const ingredientIds = normalized.map(n => n.ingredientId);
+  console.log(`Looking for recipes with ingredient IDs: ${ingredientIds.join(", ")}`);
   const recipes = await getCandidateRecipesByIngredients(ingredientIds);
+  console.log(`Found ${recipes.length} recipes matching the ingredients.`);
   if (!recipes.length) return [];
 
   const pantrySet = new Set(ingredientIds);

@@ -11,7 +11,7 @@ type OllamaGenerateResponse = {
 
 function buildPrompt(raw: unknown): string {
   const rawString = JSON.stringify(raw, null, 2);
-
+  console.log('Raw recipe for prompt:', rawString);
   return `
 You are a strict JSON API for recipe normalization.
 
@@ -107,6 +107,7 @@ export async function normalizeRecipeWithOllama(
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(rawResponse);
+    console.log('Parsed Ollama JSON:', parsed);
   } catch (e) {
     console.error("Failed to parse Ollama JSON:", rawResponse, e);
     return null;

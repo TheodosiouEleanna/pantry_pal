@@ -1,12 +1,9 @@
+import { prisma } from "../src/server/db/client";
+import { normalizeRecipeWithOllama } from "../src/lib/ai/ollamaClient";
 import { randomUUID } from "crypto";
-import { PrismaClient } from "@prisma/client";
-import {
-  normalizeRecipeWithOllama,
-} from "../src/lib/ai/ollamaClient";
+import { normalizeIngredientKey } from "../src/lib/pantry/normalizer";
 
-const prisma = new PrismaClient();
-
-async function processBatch(limit = 10): Promise<number>{
+async function processBatch(limit = 10): Promise<number> {
   const rawRecipes = await prisma.rawRecipe.findMany({
     where: { processed: false },
     take: limit,
@@ -19,15 +16,21 @@ async function processBatch(limit = 10): Promise<number>{
 
   console.log(`Processing ${rawRecipes.length} raw recipes...`);
 
+  let processed = 0;
+
   for (const raw of rawRecipes) {
     try {
-      const normalized = await normalizeRecipeWithOllama(raw.rawJson);
+      const normalizedJson = await normalizeRecipeWithOllama(raw.rawJson);
 
-      if (!normalized) {
-        console.error(
-          `Skipping raw recipe ${raw.id} due to invalid Ollama output`,
+      if (
+        !normalizedJson ||
+        !normalizedJson.title ||
+        !Array.isArray(normalizedJson.ingredients) ||
+        normalizedJson.ingredients.length === 0
+      ) {
+        console.warn(
+          `Invalid normalized recipe for raw recipe ${raw.id}, marking processed and skipping.`,
         );
-        // you can decide whether to mark as processed or leave it for later
         await prisma.rawRecipe.update({
           where: { id: raw.id },
           data: { processed: true },
@@ -35,59 +38,83 @@ async function processBatch(limit = 10): Promise<number>{
         continue;
       }
 
-      console.log("Normalized:", normalized.title);
-
       await prisma.$transaction(async (tx) => {
-        const resolvedIngredients: {
+        const ingredientCache = new Map<string, string>();
+
+        async function getOrCreateIngredientId(name: string): Promise<string> {
+          const cached = ingredientCache.get(name);
+          if (cached) return cached;
+
+          const alias = await tx.ingredientAlias.findFirst({
+            where: { aliasName: name },
+            include: { ingredient: true },
+          });
+
+          if (alias) {
+            ingredientCache.set(name, alias.ingredientId);
+            return alias.ingredientId;
+          }
+
+          const ingredientId = randomUUID();
+
+          const ingredient = await tx.ingredient.create({
+            data: {
+              id: ingredientId,
+              canonicalName: name,
+            },
+          });
+
+          await tx.ingredientAlias.create({
+            data: {
+              id: randomUUID(),
+              ingredientId: ingredient.id,
+              aliasName: name,
+            },
+          });
+
+          ingredientCache.set(name, ingredient.id);
+          return ingredient.id;
+        }
+
+        const recipeIngredientData: {
+          id: string;
+          recipeId: string;
           ingredientId: string;
           amount: number | null;
           unit: string | null;
-          name: string;
+          optional: boolean;
         }[] = [];
 
-        for (const ing of normalized.ingredients) {
-          const name = ing.name?.trim().toLowerCase();
+        const difficulty =
+          normalizedJson.difficulty === "easy" ||
+          normalizedJson.difficulty === "medium" ||
+          normalizedJson.difficulty === "hard"
+            ? normalizedJson.difficulty
+            : null;
+
+        const recipeId = randomUUID();
+
+        for (const ing of normalizedJson.ingredients) {
+          const rawName = ing.name ?? "";
+          const name = normalizeIngredientKey(rawName);
           if (!name) continue;
 
-          let ingredientId: string;
+          const ingredientId = await getOrCreateIngredientId(name);
 
-          const existingAlias = await tx.ingredientAlias.findFirst({
-            where: { aliasName: name },
-            select: { ingredientId: true },
-          });
-
-          if (existingAlias) {
-            ingredientId = existingAlias.ingredientId;
-          } else {
-            const newIngredientId = randomUUID();
-
-            await tx.ingredient.create({
-              data: {
-                id: newIngredientId,
-                canonicalName: name,
-              },
-            });
-
-            await tx.ingredientAlias.create({
-              data: {
-                id: randomUUID(),
-                ingredientId: newIngredientId,
-                aliasName: name,
-              },
-            });
-
-            ingredientId = newIngredientId;
-          }
-
-          resolvedIngredients.push({
+          recipeIngredientData.push({
+            id: randomUUID(),
+            recipeId,
             ingredientId,
             amount: ing.amount ?? null,
             unit: ing.unit ?? null,
-            name,
+            optional: false,
           });
         }
 
-        if (!resolvedIngredients.length) {
+        if (recipeIngredientData.length === 0) {
+          console.warn(
+            `No usable ingredients for raw recipe ${raw.id}, marking processed and skipping.`,
+          );
           await tx.rawRecipe.update({
             where: { id: raw.id },
             data: { processed: true },
@@ -95,38 +122,23 @@ async function processBatch(limit = 10): Promise<number>{
           return;
         }
 
-        const difficulty =
-          normalized.difficulty === "easy" ||
-          normalized.difficulty === "medium" ||
-          normalized.difficulty === "hard"
-            ? normalized.difficulty
-            : null;
-
-        const recipeId = randomUUID();
+        const baseSlug = normalizedJson.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+          .slice(0, 80);
 
         await tx.recipe.create({
           data: {
             id: recipeId,
-            slug: `${normalized.title
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, "-")
-              .replace(/^-+|-+$/g, "")}-${recipeId.slice(0, 8)}`,
-            title: normalized.title,
-            description: normalized.description ?? null,
-            timeMinutes: normalized.timeMinutes ?? null,
+            slug: `${baseSlug}-${recipeId.slice(0, 8)}`,
+            title: normalizedJson.title,
+            description: normalizedJson.description ?? null,
+            timeMinutes: normalizedJson.timeMinutes ?? null,
             difficulty,
             isActive: true,
           },
         });
-
-        const recipeIngredientData = resolvedIngredients.map((ri) => ({
-          id: randomUUID(),
-          recipeId,
-          ingredientId: ri.ingredientId,
-          amount: ri.amount,
-          unit: ri.unit,
-          optional: false,
-        }));
 
         await tx.recipeIngredient.createMany({
           data: recipeIngredientData,
@@ -138,12 +150,15 @@ async function processBatch(limit = 10): Promise<number>{
         });
       });
 
+      processed += 1;
       console.log(`Processed raw recipe ${raw.id}`);
     } catch (err) {
       console.error(`Failed to process raw recipe ${raw.id}`, err);
+      // still not marking as processed so you can inspect later
     }
   }
-  return rawRecipes.length;
+
+  return processed;
 }
 
 async function main() {
@@ -162,7 +177,9 @@ async function main() {
       const remainingAfter = await prisma.rawRecipe.count({
         where: { processed: false },
       });
-      console.log(`No more recipes. Remaining unprocessed: ${remainingAfter}`);
+      console.log(
+        `No recipes processed in this batch. Remaining unprocessed: ${remainingAfter}`,
+      );
       break;
     }
   }
@@ -174,5 +191,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    prisma.$disconnect();
+    await prisma.$disconnect();
   });

@@ -21,6 +21,8 @@ export async function getCandidateRecipesByIngredients(
     take: limit,
   });
 
+  console.log(`Found ${recipeIngredients.length} candidate recipes for ingredients.`);
+
   const recipeIds = recipeIngredients.map(r => r.recipeId);
 
   const recipes = await prisma.recipe.findMany({

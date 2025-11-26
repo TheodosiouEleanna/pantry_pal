@@ -2,7 +2,7 @@ services:
   pantrypal:
     build:
       context: .
-      dockerfile: Dockerfile.app
+      dockerfile: Dockerfile
     container_name: pantrypal_app
     restart: unless-stopped
     environment:
@@ -19,7 +19,7 @@ services:
   worker:
     build:
       context: .
-      dockerfile: Dockerfile.app
+      dockerfile: Dockerfile
     container_name: pantrypal_worker
     environment:
       DATABASE_URL: postgres://pantrypal:pantrypal_password@db:5432/pantrypal
